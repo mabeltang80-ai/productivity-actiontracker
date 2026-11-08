@@ -3,7 +3,12 @@
 A single-page tracker for actions agreed in meetings. Add an action with an owner and due date, tick it off when done, and see open, done and overdue counts at a glance. Overdue actions are highlighted in red.
 
 - Plain HTML, CSS and JavaScript in one file (`index.html`). No build step, no dependencies.
-- Data is saved in the browser's local storage, so each person sees their own list.
+- Data is stored in Supabase, so everyone using the site sees the same list. The page refreshes when the tab comes back into view and every 45 seconds.
+- `supabase/schema.sql` holds the table, access rules and sample data.
+
+## Access
+
+The site is open: anyone with the link can read, add, tick off and delete actions. Only the done flag can be changed after an action is created. If you later need sign-in, switch the row-level security policies to `authenticated` only and add a login step.
 
 ## Deploy to Vercel
 
@@ -14,6 +19,6 @@ A single-page tracker for actions agreed in meetings. Add an action with an owne
 
 `vercel.json` turns on clean URLs and adds basic security headers.
 
-## Run locally
+## Configuration
 
-Open `index.html` in a browser.
+The Supabase project URL and publishable key are at the top of the script in `index.html`. The publishable key is meant for browser code. Never put a secret or service role key in this file.

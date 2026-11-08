@@ -128,6 +128,7 @@ h1 {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
   padding: 14px 18px; border-radius: 12px; background: var(--accent-soft); font-size: 16px;
 }
+.note.alert { background: var(--alert-bg); color: var(--alert); font-weight: 600; }
 .linklike { background: none; border: 0; padding: 6px 0; cursor: pointer; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 
 /* Owner cards */
@@ -226,8 +227,13 @@ h1 {
     <button class="chip" type="button" data-filter="done" aria-pressed="false">Done <span class="c">0</span></button>
   </div>
 
+  <div class="note alert" id="status" role="alert" hidden>
+    <span id="status-text"></span>
+    <button class="linklike" type="button" id="retry" hidden>Retry</button>
+  </div>
+
   <div class="note" id="sample-note" hidden>
-    <span>These are sample actions so you can see how the tracker works.</span>
+    <span>These are sample actions so you can see how the tracker works. Clearing them removes them for everyone.</span>
     <button class="linklike" type="button" id="clear-samples">Clear samples</button>
   </div>
 
@@ -236,8 +242,13 @@ h1 {
 
 <script>
 (function () {
-  var KEY = 'meeting-action-tracker.v1';
-  var state = { items: [], filter: 'all' };
+  // Supabase project. The publishable key is designed to be used in browser code;
+  // what it can do is limited by the row-level security rules on the actions table.
+  var SUPABASE_URL = 'https://xizoucszsgpqzubxissr.supabase.co';
+  var SUPABASE_KEY = 'sb_publishable_XtBos6kCmWx8t6wO8vZGww_iGsHOgL2';
+  var TABLE = SUPABASE_URL + '/rest/v1/actions';
+
+  var state = { items: [], filter: 'all', loading: true };
   var confirmId = null, confirmTimer = null;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -254,40 +265,49 @@ h1 {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   };
-  var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
   var isOverdue = function (it) { return !it.done && it.due < today(); };
 
-  function load() {
-    try {
-      var raw = localStorage.getItem(KEY);
-      if (!raw) return null;
-      var p = JSON.parse(raw);
-      if (!p || !Array.isArray(p.items)) return null;
-      return p.items.filter(function (i) {
-        return i && typeof i.text === 'string' && typeof i.owner === 'string' && typeof i.due === 'string' && i.id;
-      });
-    } catch (e) { return null; }
-  }
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ items: state.items })); } catch (e) {}
-  }
-
-  function seed() {
-    var rows = [
-      ['Send revised pricing to the Lim account', 'Priya', -2, false],
-      ['Draft the Q1 hiring plan for review', 'Priya', 6, false],
-      ['Book the venue for the December offsite', 'Marcus', 3, false],
-      ['Confirm launch date with legal', 'Marcus', 10, false],
-      ['Fix the onboarding email bounce issue', 'Daniel', -1, false],
-      ['Share meeting notes with the wider team', 'Daniel', 0, true],
-      ['Update the shared roadmap', 'Mei Ling', 1, false],
-      ['Collect feedback from the pilot customers', 'Mei Ling', -4, true]
-    ];
-    return rows.map(function (r) {
-      return { id: uid(), text: r[0], owner: r[1], due: plusDays(r[2]), done: r[3], ex: true };
+  // --- Database -----------------------------------------------------------
+  function api(method, query, body, prefer) {
+    var headers = { apikey: SUPABASE_KEY };
+    if (body) headers['Content-Type'] = 'application/json';
+    if (prefer) headers.Prefer = prefer;
+    return fetch(TABLE + (query || ''), {
+      method: method,
+      headers: headers,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.status === 204 ? null : res.json();
     });
   }
 
+  function fromRow(r) {
+    return { id: r.id, text: r.text, owner: r.owner, due: r.due, done: r.done, ex: r.is_sample };
+  }
+
+  function setStatus(msg, retry) {
+    $('status').hidden = !msg;
+    $('status-text').textContent = msg || '';
+    $('retry').hidden = !retry;
+  }
+
+  function refresh() {
+    return api('GET', '?select=id,text,owner,due,done,is_sample&order=created_at.asc')
+      .then(function (rows) {
+        state.items = rows.map(fromRow);
+        state.loading = false;
+        setStatus('');
+        render();
+      })
+      .catch(function () {
+        state.loading = false;
+        setStatus('Could not load the latest actions. Check your connection.', true);
+        render();
+      });
+  }
+
+  // --- Display ------------------------------------------------------------
   function dueLabel(it) {
     var fmt = parse(it.due).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     if (it.done) return 'Due ' + fmt;
@@ -334,6 +354,11 @@ h1 {
       return '<option value="' + esc(n) + '"></option>';
     }).join('');
 
+    if (state.loading) {
+      $('groups').innerHTML = '<div class="empty">Loading actions…</div>';
+      return;
+    }
+
     var pass = {
       all: function () { return true; },
       open: function (i) { return !i.done; },
@@ -364,9 +389,9 @@ h1 {
           var cls = 'item' + (it.done ? ' done' : '') + (isOverdue(it) ? ' overdue' : '');
           var del = confirmId === it.id;
           return '<li class="' + cls + '">' +
-            '<input type="checkbox" id="c-' + it.id + '" data-toggle="' + it.id + '"' + (it.done ? ' checked' : '') + '>' +
-            '<label class="body" for="c-' + it.id + '"><span class="txt">' + esc(it.text) + '</span><span class="due">' + esc(dueLabel(it)) + '</span></label>' +
-            '<button class="del' + (del ? ' confirm' : '') + '" type="button" data-del="' + it.id + '" aria-label="Delete: ' + esc(it.text) + '">' + (del ? 'Confirm delete' : 'Delete') + '</button>' +
+            '<input type="checkbox" id="c-' + esc(it.id) + '" data-toggle="' + esc(it.id) + '"' + (it.done ? ' checked' : '') + '>' +
+            '<label class="body" for="c-' + esc(it.id) + '"><span class="txt">' + esc(it.text) + '</span><span class="due">' + esc(dueLabel(it)) + '</span></label>' +
+            '<button class="del' + (del ? ' confirm' : '') + '" type="button" data-del="' + esc(it.id) + '" aria-label="Delete: ' + esc(it.text) + '">' + (del ? 'Confirm delete' : 'Delete') + '</button>' +
             '</li>';
         }).join('');
         return '<section class="owner" aria-label="Actions for ' + esc(name) + '">' +
@@ -383,7 +408,7 @@ h1 {
     }
   }
 
-  // Events
+  // --- Events -------------------------------------------------------------
   $('add-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var f = e.target;
@@ -391,19 +416,37 @@ h1 {
     if (!text) { f.text.focus(); return; }
     if (!owner) { f.owner.focus(); return; }
     if (!due) { f.due.focus(); return; }
-    state.items.push({ id: uid(), text: text, owner: owner, due: due, done: false });
-    save();
-    f.text.value = '';
-    render();
-    f.text.focus();
+    var btn = f.querySelector('.primary');
+    btn.disabled = true;
+    api('POST', '', { text: text, owner: owner, due: due, done: false, is_sample: false }, 'return=representation')
+      .then(function (rows) {
+        state.items.push(fromRow(rows[0]));
+        f.text.value = '';
+        setStatus('');
+        render();
+        f.text.focus();
+      })
+      .catch(function () {
+        setStatus('Could not add that action. Your text is still in the box, so try again.', false);
+      })
+      .then(function () { btn.disabled = false; });
   });
 
   $('groups').addEventListener('change', function (e) {
     var id = e.target.dataset && e.target.dataset.toggle;
     if (!id) return;
-    state.items.forEach(function (i) { if (i.id === id) i.done = e.target.checked; });
-    save();
+    var item = state.items.filter(function (i) { return i.id === id; })[0];
+    if (!item) return;
+    var next = e.target.checked, prev = item.done;
+    item.done = next;
     render('#c-' + id);
+    api('PATCH', '?id=eq.' + encodeURIComponent(id), { done: next })
+      .then(function () { setStatus(''); })
+      .catch(function () {
+        item.done = prev;
+        setStatus('Could not save that change, so it was undone. Try again.', false);
+        render('#c-' + id);
+      });
   });
 
   $('groups').addEventListener('click', function (e) {
@@ -411,10 +454,18 @@ h1 {
     if (!btn) return;
     var id = btn.dataset.del;
     if (confirmId === id) {
-      state.items = state.items.filter(function (i) { return i.id !== id; });
       confirmId = null;
       clearTimeout(confirmTimer);
-      save();
+      api('DELETE', '?id=eq.' + encodeURIComponent(id))
+        .then(function () {
+          state.items = state.items.filter(function (i) { return i.id !== id; });
+          setStatus('');
+          render();
+        })
+        .catch(function () {
+          setStatus('Could not delete that action. Try again.', false);
+          render();
+        });
       render();
       return;
     }
@@ -432,19 +483,25 @@ h1 {
   });
 
   $('clear-samples').addEventListener('click', function () {
-    state.items = state.items.filter(function (i) { return !i.ex; });
-    save();
-    render();
+    api('DELETE', '?is_sample=eq.true')
+      .then(function () {
+        state.items = state.items.filter(function (i) { return !i.ex; });
+        setStatus('');
+        render();
+      })
+      .catch(function () { setStatus('Could not clear the samples. Try again.', false); });
   });
 
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) render(); });
+  $('retry').addEventListener('click', function () { refresh(); });
 
-  // Boot
-  var stored = load();
-  if (stored) { state.items = stored; }
-  else { state.items = seed(); save(); }
+  // Pick up changes teammates made when the tab comes back into view, and every 45 seconds while it is open.
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+  setInterval(function () { if (!document.hidden && !confirmId) refresh(); }, 45000);
+
+  // --- Boot ---------------------------------------------------------------
   $('f-due').value = plusDays(7);
   render();
+  refresh();
 })();
 </script>
 </body>
