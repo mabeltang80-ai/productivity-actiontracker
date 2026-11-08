@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+/* Page reset (the artifact viewer supplied this; standalone hosting needs it) */
+:root { color-scheme: light; }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>Meeting Action Tracker</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one calm column. Summary strip, quick-add card, filter chips, then one card per owner in a responsive grid. */
+:root {
+  --bg: #EDEEEA;
+  --card: #FAFAF8;
+  --card-2: #E9EAE5;
+  --fg: #22252A;
+  --muted: #5F646C;
+  --line: #DADBD5;
+  --field: #FFFFFF;
+  --field-line: #BDBFB8;
+  --accent: #D9480F;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #F8E6DA;
+  --alert: #B42318;
+  --alert-bg: #FCEBE8;
+  --alert-line: #F0C2BB;
+  --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16181B; --card: #1F2226; --card-2: #2A2E33; --fg: #ECEDEE; --muted: #9BA0A8;
+    --line: #30343A; --field: #16181B; --field-line: #484E55;
+    --accent: #FF8A4C; --accent-ink: #1B1109; --accent-soft: #3A2618;
+    --alert: #FF8E82; --alert-bg: #38211F; --alert-line: #5A322E;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16181B; --card: #1F2226; --card-2: #2A2E33; --fg: #ECEDEE; --muted: #9BA0A8;
+  --line: #30343A; --field: #16181B; --field-line: #484E55;
+  --accent: #FF8A4C; --accent-ink: #1B1109; --accent-soft: #3A2618;
+  --alert: #FF8E82; --alert-bg: #38211F; --alert-line: #5A322E;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 18px;
+  line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 56px;
+}
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button, input { font: inherit; color: inherit; }
+
+.app { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(32px, 6vw, 46px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+  text-wrap: balance;
+}
+.sub { margin: 0; color: var(--muted); font-size: 18px; }
+
+/* Summary */
+.summary {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+}
+.stat { padding: 18px 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.stat + .stat { border-left: 1px solid var(--line); }
+.stat .num {
+  font-family: var(--font-display); font-weight: 700; font-size: 46px; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat .lbl { font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.stat.alert { background: var(--alert-bg); }
+.stat.alert .num, .stat.alert .lbl { color: var(--alert); }
+
+/* Cards */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+
+/* Add form */
+.add { padding: 20px; display: grid; gap: 14px; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field label { font-size: 14px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
+.field input {
+  width: 100%; height: 54px; padding: 0 14px; font-size: 18px;
+  background: var(--field); border: 1.5px solid var(--field-line); border-radius: 10px;
+}
+.field input::placeholder { color: var(--muted); opacity: 0.8; }
+.primary {
+  height: 54px; padding: 0 28px; border: 0; border-radius: 10px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); font-size: 18px; font-weight: 600;
+  transition: filter 0.12s;
+}
+.primary:hover { filter: brightness(0.93); }
+
+/* Toolbar */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  min-height: 46px; padding: 0 18px; border-radius: 999px; cursor: pointer;
+  background: transparent; border: 1.5px solid var(--field-line); color: var(--muted);
+  font-size: 16px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;
+}
+.chip .c { font-variant-numeric: tabular-nums; opacity: 0.75; }
+.chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+
+/* Sample note */
+.note {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 14px 18px; border-radius: 12px; background: var(--accent-soft); font-size: 16px;
+}
+.linklike { background: none; border: 0; padding: 6px 0; cursor: pointer; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Owner cards */
+.groups {
+  display: grid; gap: 20px; align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+}
+.owner { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; min-width: 0; }
+.oh { display: flex; align-items: center; gap: 14px; padding: 18px 20px; }
+.avatar {
+  width: 46px; height: 46px; border-radius: 50%; flex: none; background: var(--card-2);
+  display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 20px;
+}
+.oh-text { flex: 1; min-width: 0; }
+.oh h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; line-height: 1.2; margin: 0; overflow-wrap: anywhere; letter-spacing: -0.01em; }
+.meta { color: var(--muted); font-size: 15px; }
+.pill {
+  flex: none; padding: 3px 12px; border-radius: 999px; font-size: 14px; font-weight: 600;
+  background: var(--alert-bg); color: var(--alert); border: 1px solid var(--alert-line);
+}
+
+.items { list-style: none; margin: 0; padding: 0; }
+.item { display: flex; align-items: flex-start; gap: 14px; padding: 16px 20px; border-top: 1px solid var(--line); }
+.item input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; flex: none; margin: 2px 0 0;
+  width: 30px; height: 30px; border: 2px solid var(--muted); border-radius: 9px; background: var(--field);
+  display: grid; place-content: center; cursor: pointer; transition: background 0.12s, border-color 0.12s;
+}
+.item input[type="checkbox"]::after {
+  content: ""; width: 7px; height: 14px; border: solid var(--accent-ink); border-width: 0 3px 3px 0;
+  transform: rotate(45deg) translate(-1px, -1px); opacity: 0;
+}
+.item input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.item input[type="checkbox"]:checked::after { opacity: 1; }
+.body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.txt { font-size: 19px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.due { font-size: 15.5px; color: var(--muted); }
+.item.done .txt { text-decoration: line-through; color: var(--muted); font-weight: 400; }
+.item.overdue { background: var(--alert-bg); border-top-color: var(--alert-line); }
+.item.overdue .due { color: var(--alert); font-weight: 600; }
+.del { flex: none; background: none; border: 0; color: var(--muted); font-size: 14px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.del:hover { color: var(--fg); }
+.del.confirm { color: var(--alert); font-weight: 600; }
+
+.empty { grid-column: 1 / -1; padding: 40px 20px; text-align: center; color: var(--muted); border: 1.5px dashed var(--field-line); border-radius: 16px; }
+
+@media (max-width: 820px) {
+  .add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .add .f-text, .add .primary { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  body { padding-block: 24px 40px; }
+  .add { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .stat { padding: 14px; }
+  .stat .num { font-size: 36px; }
+  .stat .lbl { font-size: 12px; }
+  .oh, .item { padding-left: 16px; padding-right: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Meeting Actions</h1>
+    <p class="sub"><span id="today"></span>. Every action has one owner and one due date.</p>
+  </header>
+
+  <section class="summary" aria-label="Summary">
+    <div class="stat"><span class="num" id="n-open">0</span><span class="lbl">Open</span></div>
+    <div class="stat"><span class="num" id="n-done">0</span><span class="lbl">Done</span></div>
+    <div class="stat" id="stat-over"><span class="num" id="n-over">0</span><span class="lbl">Overdue</span></div>
+  </section>
+
+  <form class="card add" id="add-form" autocomplete="off">
+    <div class="field f-text">
+      <label for="f-text">What was agreed</label>
+      <input id="f-text" name="text" type="text" placeholder="e.g. Send the revised quote to the client" required maxlength="200">
+    </div>
+    <div class="field">
+      <label for="f-owner">Owner</label>
+      <input id="f-owner" name="owner" type="text" list="owners" placeholder="Name" required maxlength="60">
+      <datalist id="owners"></datalist>
+    </div>
+    <div class="field">
+      <label for="f-due">Due date</label>
+      <input id="f-due" name="due" type="date" required>
+    </div>
+    <button class="primary" type="submit">Add action</button>
+  </form>
+
+  <div class="toolbar" id="filters" role="group" aria-label="Filter actions">
+    <button class="chip" type="button" data-filter="all" aria-pressed="true">All <span class="c">0</span></button>
+    <button class="chip" type="button" data-filter="open" aria-pressed="false">Open <span class="c">0</span></button>
+    <button class="chip" type="button" data-filter="overdue" aria-pressed="false">Overdue <span class="c">0</span></button>
+    <button class="chip" type="button" data-filter="done" aria-pressed="false">Done <span class="c">0</span></button>
+  </div>
+
+  <div class="note" id="sample-note" hidden>
+    <span>These are sample actions so you can see how the tracker works.</span>
+    <button class="linklike" type="button" id="clear-samples">Clear samples</button>
+  </div>
+
+  <main class="groups" id="groups" aria-live="polite"></main>
+</div>
+
+<script>
+(function () {
+  var KEY = 'meeting-action-tracker.v1';
+  var state = { items: [], filter: 'all' };
+  var confirmId = null, confirmTimer = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  var iso = function (d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+  var today = function () { return iso(new Date()); };
+  var plusDays = function (n) { var d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+  var parse = function (s) { var p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+  var diffDays = function (s) { return Math.round((parse(s) - parse(today())) / 86400000); };
+  var key = function (name) { return name.trim().toLowerCase(); };
+  var cmp = function (a, b) { return a.localeCompare(b, undefined, { sensitivity: 'base' }); };
+  var esc = function (s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+  var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
+  var isOverdue = function (it) { return !it.done && it.due < today(); };
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return null;
+      var p = JSON.parse(raw);
+      if (!p || !Array.isArray(p.items)) return null;
+      return p.items.filter(function (i) {
+        return i && typeof i.text === 'string' && typeof i.owner === 'string' && typeof i.due === 'string' && i.id;
+      });
+    } catch (e) { return null; }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify({ items: state.items })); } catch (e) {}
+  }
+
+  function seed() {
+    var rows = [
+      ['Send revised pricing to the Lim account', 'Priya', -2, false],
+      ['Draft the Q1 hiring plan for review', 'Priya', 6, false],
+      ['Book the venue for the December offsite', 'Marcus', 3, false],
+      ['Confirm launch date with legal', 'Marcus', 10, false],
+      ['Fix the onboarding email bounce issue', 'Daniel', -1, false],
+      ['Share meeting notes with the wider team', 'Daniel', 0, true],
+      ['Update the shared roadmap', 'Mei Ling', 1, false],
+      ['Collect feedback from the pilot customers', 'Mei Ling', -4, true]
+    ];
+    return rows.map(function (r) {
+      return { id: uid(), text: r[0], owner: r[1], due: plusDays(r[2]), done: r[3], ex: true };
+    });
+  }
+
+  function dueLabel(it) {
+    var fmt = parse(it.due).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    if (it.done) return 'Due ' + fmt;
+    var d = diffDays(it.due);
+    if (d < 0) return 'Overdue by ' + (-d) + (d === -1 ? ' day' : ' days') + ' · ' + fmt;
+    if (d === 0) return 'Due today';
+    if (d === 1) return 'Due tomorrow';
+    return 'Due ' + fmt;
+  }
+
+  var emptyText = {
+    all: 'No actions yet. Add the first one above.',
+    open: 'Nothing open. Every agreed action is done.',
+    overdue: 'Nothing overdue.',
+    done: 'Nothing ticked off yet.'
+  };
+
+  function render(focusSel) {
+    var all = state.items;
+    var nOpen = all.filter(function (i) { return !i.done; }).length;
+    var nOver = all.filter(isOverdue).length;
+
+    $('today').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    $('n-open').textContent = nOpen;
+    $('n-done').textContent = all.length - nOpen;
+    $('n-over').textContent = nOver;
+    $('stat-over').classList.toggle('alert', nOver > 0);
+
+    var counts = { all: all.length, open: nOpen, overdue: nOver, done: all.length - nOpen };
+    document.querySelectorAll('[data-filter]').forEach(function (b) {
+      var f = b.dataset.filter;
+      b.setAttribute('aria-pressed', String(state.filter === f));
+      b.querySelector('.c').textContent = counts[f];
+    });
+
+    $('sample-note').hidden = !all.some(function (i) { return i.ex; });
+
+    var nameByKey = new Map();
+    all.forEach(function (i) {
+      var k = key(i.owner);
+      if (!nameByKey.has(k)) nameByKey.set(k, i.owner.trim());
+    });
+    $('owners').innerHTML = Array.from(nameByKey.values()).sort(cmp).map(function (n) {
+      return '<option value="' + esc(n) + '"></option>';
+    }).join('');
+
+    var pass = {
+      all: function () { return true; },
+      open: function (i) { return !i.done; },
+      overdue: isOverdue,
+      done: function (i) { return i.done; }
+    }[state.filter];
+
+    var groups = new Map();
+    all.filter(pass).forEach(function (i) {
+      var k = key(i.owner);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(i);
+    });
+    var keys = Array.from(groups.keys()).sort(function (a, b) { return cmp(nameByKey.get(a), nameByKey.get(b)); });
+
+    if (!keys.length) {
+      $('groups').innerHTML = '<div class="empty">' + esc(emptyText[state.filter]) + '</div>';
+    } else {
+      $('groups').innerHTML = keys.map(function (k) {
+        var name = nameByKey.get(k);
+        var mine = all.filter(function (i) { return key(i.owner) === k; });
+        var mOpen = mine.filter(function (i) { return !i.done; }).length;
+        var mOver = mine.filter(isOverdue).length;
+        var items = groups.get(k).slice().sort(function (a, b) {
+          return (a.done - b.done) || a.due.localeCompare(b.due);
+        });
+        var rows = items.map(function (it) {
+          var cls = 'item' + (it.done ? ' done' : '') + (isOverdue(it) ? ' overdue' : '');
+          var del = confirmId === it.id;
+          return '<li class="' + cls + '">' +
+            '<input type="checkbox" id="c-' + it.id + '" data-toggle="' + it.id + '"' + (it.done ? ' checked' : '') + '>' +
+            '<label class="body" for="c-' + it.id + '"><span class="txt">' + esc(it.text) + '</span><span class="due">' + esc(dueLabel(it)) + '</span></label>' +
+            '<button class="del' + (del ? ' confirm' : '') + '" type="button" data-del="' + it.id + '" aria-label="Delete: ' + esc(it.text) + '">' + (del ? 'Confirm delete' : 'Delete') + '</button>' +
+            '</li>';
+        }).join('');
+        return '<section class="owner" aria-label="Actions for ' + esc(name) + '">' +
+          '<div class="oh"><div class="avatar" aria-hidden="true">' + esc(name.charAt(0).toUpperCase()) + '</div>' +
+          '<div class="oh-text"><h2>' + esc(name) + '</h2><div class="meta">' + mOpen + ' open · ' + (mine.length - mOpen) + ' done</div></div>' +
+          (mOver ? '<span class="pill">' + mOver + ' overdue</span>' : '') +
+          '</div><ul class="items">' + rows + '</ul></section>';
+      }).join('');
+    }
+
+    if (focusSel) {
+      var el = document.querySelector(focusSel);
+      if (el) el.focus();
+    }
+  }
+
+  // Events
+  $('add-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = e.target;
+    var text = f.text.value.trim(), owner = f.owner.value.trim(), due = f.due.value;
+    if (!text) { f.text.focus(); return; }
+    if (!owner) { f.owner.focus(); return; }
+    if (!due) { f.due.focus(); return; }
+    state.items.push({ id: uid(), text: text, owner: owner, due: due, done: false });
+    save();
+    f.text.value = '';
+    render();
+    f.text.focus();
+  });
+
+  $('groups').addEventListener('change', function (e) {
+    var id = e.target.dataset && e.target.dataset.toggle;
+    if (!id) return;
+    state.items.forEach(function (i) { if (i.id === id) i.done = e.target.checked; });
+    save();
+    render('#c-' + id);
+  });
+
+  $('groups').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-del]');
+    if (!btn) return;
+    var id = btn.dataset.del;
+    if (confirmId === id) {
+      state.items = state.items.filter(function (i) { return i.id !== id; });
+      confirmId = null;
+      clearTimeout(confirmTimer);
+      save();
+      render();
+      return;
+    }
+    confirmId = id;
+    clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(function () { confirmId = null; render(); }, 3000);
+    render('[data-del="' + id + '"]');
+  });
+
+  $('filters').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-filter]');
+    if (!b) return;
+    state.filter = b.dataset.filter;
+    render();
+  });
+
+  $('clear-samples').addEventListener('click', function () {
+    state.items = state.items.filter(function (i) { return !i.ex; });
+    save();
+    render();
+  });
+
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) render(); });
+
+  // Boot
+  var stored = load();
+  if (stored) { state.items = stored; }
+  else { state.items = seed(); save(); }
+  $('f-due').value = plusDays(7);
+  render();
+})();
+</script>
+</body>
+</html>
